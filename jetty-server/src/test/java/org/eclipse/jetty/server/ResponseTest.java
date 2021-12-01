@@ -523,6 +523,7 @@ public class ResponseTest
         response.setCharacterEncoding("utf-8");
         assertEquals("foo/bar;charset=utf-8", response.getContentType());
         response.flushBuffer();
+        response.onCommit();
         response.setCharacterEncoding("utf-16");
         assertEquals("foo/bar;charset=utf-8", response.getContentType());
     }

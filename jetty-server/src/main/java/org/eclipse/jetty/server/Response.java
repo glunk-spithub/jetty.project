@@ -88,7 +88,7 @@ public class Response implements HttpServletResponse
 
     private final HttpChannel _channel;
     private final HttpFields _fields = new HttpFields();
-    private final AtomicBiInteger _errorSentAndIncludes = new AtomicBiInteger(); // hi is errorSent flag, lo is include count
+    private final AtomicBiInteger _mutable = new AtomicBiInteger(); // hi==1:errorSent hi==-1 committed, lo == include count
     private final HttpOutput _out;
     private int _status = HttpStatus.OK_200;
     private String _reason;
@@ -125,7 +125,7 @@ public class Response implements HttpServletResponse
     {
         // _channel need not be recycled
         _fields.clear();
-        _errorSentAndIncludes.set(0);
+        _mutable.set(0);
         _out.recycle();
         _status = HttpStatus.OK_200;
         _reason = null;
@@ -148,15 +148,21 @@ public class Response implements HttpServletResponse
     public void reopen()
     {
         // Make the response mutable and reopen output.
-        setErrorSent(false);
-        _out.reopen();
+        if (_mutable.compareAndSetHi(1, 0))
+            _out.reopen();
     }
 
-    public void errorClose()
+    public void errorClose(int code)
     {
         // Make the response immutable and soft close the output.
-        setErrorSent(true);
+        if (_mutable.compareAndSetHi(0, 1))
+            _status = code;
         _out.softClose();
+    }
+
+    void onCommit()
+    {
+        _mutable.getAndSetHi(-1);
     }
 
     /**
@@ -164,27 +170,22 @@ public class Response implements HttpServletResponse
      */
     private boolean isMutable()
     {
-        return _errorSentAndIncludes.get() == 0;
-    }
-
-    private void setErrorSent(boolean errorSent)
-    {
-        _errorSentAndIncludes.getAndSetHi(errorSent ? 1 : 0);
+        return _mutable.get() == 0;
     }
 
     public boolean isIncluding()
     {
-        return _errorSentAndIncludes.getLo() > 0;
+        return _mutable.getLo() > 0;
     }
 
     public void include()
     {
-        _errorSentAndIncludes.add(0, 1);
+        _mutable.add(0, 1);
     }
 
     public void included()
     {
-        _errorSentAndIncludes.add(0, -1);
+        _mutable.add(0, -1);
         if (_outputType == OutputType.WRITER)
         {
             _writer.reopen();
@@ -616,12 +617,12 @@ public class Response implements HttpServletResponse
     @Override
     public void setHeader(String name, String value)
     {
-        long biInt = _errorSentAndIncludes.get();
+        long biInt = _mutable.get();
         if (biInt != 0)
         {
-            boolean errorSent = AtomicBiInteger.getHi(biInt) != 0;
+            boolean committed = AtomicBiInteger.getHi(biInt) != 0;
             boolean including = AtomicBiInteger.getLo(biInt) > 0;
-            if (!errorSent && including && name.startsWith(SET_INCLUDE_HEADER_PREFIX))
+            if (!committed && including && name.startsWith(SET_INCLUDE_HEADER_PREFIX))
                 name = name.substring(SET_INCLUDE_HEADER_PREFIX.length());
             else
                 return;
@@ -666,12 +667,12 @@ public class Response implements HttpServletResponse
     @Override
     public void addHeader(String name, String value)
     {
-        long biInt = _errorSentAndIncludes.get();
+        long biInt = _mutable.get();
         if (biInt != 0)
         {
-            boolean errorSent = AtomicBiInteger.getHi(biInt) != 0;
+            boolean committed = AtomicBiInteger.getHi(biInt) != 0;
             boolean including = AtomicBiInteger.getLo(biInt) > 0;
-            if (!errorSent && including && name.startsWith(SET_INCLUDE_HEADER_PREFIX))
+            if (!committed && including && name.startsWith(SET_INCLUDE_HEADER_PREFIX))
                 name = name.substring(SET_INCLUDE_HEADER_PREFIX.length());
             else
                 return;

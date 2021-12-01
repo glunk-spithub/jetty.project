@@ -924,8 +924,7 @@ public class HttpChannelState
                     throw new IllegalStateException(getStatusStringLocked());
             }
 
-            response.setStatus(code);
-            response.errorClose();
+            response.errorClose(code);
 
             request.setAttribute(ErrorHandler.ERROR_CONTEXT, request.getErrorContext());
             request.setAttribute(ERROR_REQUEST_URI, request.getRequestURI());
