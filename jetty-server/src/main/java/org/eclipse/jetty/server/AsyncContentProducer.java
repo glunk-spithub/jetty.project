@@ -66,6 +66,10 @@ class AsyncContentProducer implements ContentProducer
         assertLocked();
         if (LOG.isDebugEnabled())
             LOG.debug("recycling {}", this);
+        if (!_transformedContent.isSpecial())
+            throw new AssertionError();
+        if (!_rawContent.isSpecial())
+            throw new AssertionError();
         if (_interceptor instanceof Destroyable)
             ((Destroyable)_interceptor).destroy();
         _interceptor = null;
