@@ -31,6 +31,7 @@ import org.slf4j.LoggerFactory;
 class AsyncContentProducer implements ContentProducer
 {
     private static final Logger LOG = LoggerFactory.getLogger(AsyncContentProducer.class);
+    private static final HttpInput.ErrorContent RECYCLED_ERROR_CONTENT = new HttpInput.ErrorContent(new IllegalStateException("ContentProducer has been recycled"));
     private static final Throwable UNCONSUMED_CONTENT_EXCEPTION = new IOException("Unconsumed content")
     {
         @Override
@@ -48,7 +49,6 @@ class AsyncContentProducer implements ContentProducer
     private boolean _error;
     private long _firstByteTimeStamp = Long.MIN_VALUE;
     private long _rawContentArrived;
-    private boolean _recycled;
 
     AsyncContentProducer(HttpChannel httpChannel)
     {
@@ -67,10 +67,22 @@ class AsyncContentProducer implements ContentProducer
         assertLocked();
         if (LOG.isDebugEnabled())
             LOG.debug("recycling {}", this);
+
+        // Make sure that the content has been fully consumed before destroying the interceptor and also make sure
+        // that asking this instance for content between recycle and reopen will only produce error'ed content.
+        if (_rawContent == null)
+            _rawContent = RECYCLED_ERROR_CONTENT;
+        else if (!_rawContent.isSpecial())
+            throw new IllegalStateException("ContentProducer with unconsumed content cannot be recycled");
+
+        if (_transformedContent == null)
+            _transformedContent = RECYCLED_ERROR_CONTENT;
+        else if (!_transformedContent.isSpecial())
+            throw new IllegalStateException("ContentProducer with unconsumed content cannot be recycled");
+
         if (_interceptor instanceof Destroyable)
             ((Destroyable)_interceptor).destroy();
         _interceptor = null;
-        _recycled = true;
     }
 
     @Override
@@ -84,27 +96,26 @@ class AsyncContentProducer implements ContentProducer
         _error = false;
         _firstByteTimeStamp = Long.MIN_VALUE;
         _rawContentArrived = 0L;
-        _recycled = false;
     }
 
     @Override
     public HttpInput.Interceptor getInterceptor()
     {
-        assertUsable();
+        assertLocked();
         return _interceptor;
     }
 
     @Override
     public void setInterceptor(HttpInput.Interceptor interceptor)
     {
-        assertUsable();
+        assertLocked();
         this._interceptor = interceptor;
     }
 
     @Override
     public int available()
     {
-        assertUsable();
+        assertLocked();
         HttpInput.Content content = nextTransformedContent();
         int available = content == null ? 0 : content.remaining();
         if (LOG.isDebugEnabled())
@@ -115,7 +126,7 @@ class AsyncContentProducer implements ContentProducer
     @Override
     public boolean hasContent()
     {
-        assertUsable();
+        assertLocked();
         boolean hasContent = _rawContent != null;
         if (LOG.isDebugEnabled())
             LOG.debug("hasContent = {} {}", hasContent, this);
@@ -125,7 +136,7 @@ class AsyncContentProducer implements ContentProducer
     @Override
     public boolean isError()
     {
-        assertUsable();
+        assertLocked();
         if (LOG.isDebugEnabled())
             LOG.debug("isError = {} {}", _error, this);
         return _error;
@@ -134,7 +145,7 @@ class AsyncContentProducer implements ContentProducer
     @Override
     public void checkMinDataRate()
     {
-        assertUsable();
+        assertLocked();
         long minRequestDataRate = _httpChannel.getHttpConfiguration().getMinRequestDataRate();
         if (LOG.isDebugEnabled())
             LOG.debug("checkMinDataRate [m={},t={}] {}", minRequestDataRate, _firstByteTimeStamp, this);
@@ -166,7 +177,7 @@ class AsyncContentProducer implements ContentProducer
     @Override
     public long getRawContentArrived()
     {
-        assertUsable();
+        assertLocked();
         if (LOG.isDebugEnabled())
             LOG.debug("getRawContentArrived = {} {}", _rawContentArrived, this);
         return _rawContentArrived;
@@ -175,7 +186,7 @@ class AsyncContentProducer implements ContentProducer
     @Override
     public boolean consumeAll()
     {
-        assertUsable();
+        assertLocked();
         Throwable x = UNCONSUMED_CONTENT_EXCEPTION;
         if (LOG.isDebugEnabled())
         {
@@ -231,7 +242,7 @@ class AsyncContentProducer implements ContentProducer
     @Override
     public boolean onContentProducible()
     {
-        assertUsable();
+        assertLocked();
         if (LOG.isDebugEnabled())
             LOG.debug("onContentProducible {}", this);
         return _httpChannel.getState().onReadReady();
@@ -240,7 +251,7 @@ class AsyncContentProducer implements ContentProducer
     @Override
     public HttpInput.Content nextContent()
     {
-        assertUsable();
+        assertLocked();
         HttpInput.Content content = nextTransformedContent();
         if (LOG.isDebugEnabled())
             LOG.debug("nextContent = {} {}", content, this);
@@ -252,7 +263,7 @@ class AsyncContentProducer implements ContentProducer
     @Override
     public void reclaim(HttpInput.Content content)
     {
-        assertUsable();
+        assertLocked();
         if (LOG.isDebugEnabled())
             LOG.debug("reclaim {} {}", content, this);
         if (_transformedContent == content)
@@ -267,7 +278,7 @@ class AsyncContentProducer implements ContentProducer
     @Override
     public boolean isReady()
     {
-        assertUsable();
+        assertLocked();
         HttpInput.Content content = nextTransformedContent();
         if (content != null)
         {
@@ -444,25 +455,17 @@ class AsyncContentProducer implements ContentProducer
             throw new IllegalStateException("ContentProducer must be called within lock scope");
     }
 
-    private void assertUsable()
-    {
-        assertLocked();
-        if (_recycled)
-            throw new IllegalStateException("ContentProducer has been recycled");
-    }
-
     @Override
     public String toString()
     {
-        return String.format("%s@%x[r=%s,t=%s,i=%s,error=%b,c=%s,y=%b]",
+        return String.format("%s@%x[r=%s,t=%s,i=%s,error=%b,c=%s]",
             getClass().getSimpleName(),
             hashCode(),
             _rawContent,
             _transformedContent,
             _interceptor,
             _error,
-            _httpChannel,
-            _recycled
+            _httpChannel
         );
     }
 

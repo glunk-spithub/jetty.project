@@ -35,13 +35,14 @@ public interface ContentProducer
     AutoLock lock();
 
     /**
-     * Clear the interceptor and call {@link Destroyable#destroy()} it if it implements {@link Destroyable}.
-     * A recycled {@link ContentProducer} cannot be used anymore until {@link #reopen()} is called.
+     * Clear the interceptor and call {@link Destroyable#destroy()} on it if it implements {@link Destroyable}.
+     * A recycled {@link ContentProducer} will only produce special content with a non-null error until
+     * {@link #reopen()} is called.
      */
     void recycle();
 
     /**
-     * Reset all internal state.
+     * Reset all internal state, making this is instance logically equivalent to a freshly allocated one.
      */
     void reopen();
 
