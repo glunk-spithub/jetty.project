@@ -69,6 +69,7 @@ public class HttpInput extends ServletInputStream implements Runnable
         {
             if (LOG.isDebugEnabled())
                 LOG.debug("reopen {}", this);
+            _blockingContentProducer.reopen();
             _contentProducer = _blockingContentProducer;
             _consumedEof = false;
             _readListener = null;
