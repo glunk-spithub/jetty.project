@@ -36,6 +36,7 @@ public interface ContentProducer
 
     /**
      * Clear the interceptor and call {@link Destroyable#destroy()} it if it implements {@link Destroyable}.
+     * A recycled {@link ContentProducer} cannot be used anymore until {@link #reopen()} is called.
      */
     void recycle();
 

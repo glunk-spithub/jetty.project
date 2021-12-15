@@ -48,6 +48,7 @@ class AsyncContentProducer implements ContentProducer
     private boolean _error;
     private long _firstByteTimeStamp = Long.MIN_VALUE;
     private long _rawContentArrived;
+    private boolean _recycled;
 
     AsyncContentProducer(HttpChannel httpChannel)
     {
@@ -66,13 +67,10 @@ class AsyncContentProducer implements ContentProducer
         assertLocked();
         if (LOG.isDebugEnabled())
             LOG.debug("recycling {}", this);
-        if (!_transformedContent.isSpecial())
-            throw new AssertionError();
-        if (!_rawContent.isSpecial())
-            throw new AssertionError();
         if (_interceptor instanceof Destroyable)
             ((Destroyable)_interceptor).destroy();
         _interceptor = null;
+        _recycled = true;
     }
 
     @Override
@@ -86,26 +84,27 @@ class AsyncContentProducer implements ContentProducer
         _error = false;
         _firstByteTimeStamp = Long.MIN_VALUE;
         _rawContentArrived = 0L;
+        _recycled = false;
     }
 
     @Override
     public HttpInput.Interceptor getInterceptor()
     {
-        assertLocked();
+        assertUsable();
         return _interceptor;
     }
 
     @Override
     public void setInterceptor(HttpInput.Interceptor interceptor)
     {
-        assertLocked();
+        assertUsable();
         this._interceptor = interceptor;
     }
 
     @Override
     public int available()
     {
-        assertLocked();
+        assertUsable();
         HttpInput.Content content = nextTransformedContent();
         int available = content == null ? 0 : content.remaining();
         if (LOG.isDebugEnabled())
@@ -116,7 +115,7 @@ class AsyncContentProducer implements ContentProducer
     @Override
     public boolean hasContent()
     {
-        assertLocked();
+        assertUsable();
         boolean hasContent = _rawContent != null;
         if (LOG.isDebugEnabled())
             LOG.debug("hasContent = {} {}", hasContent, this);
@@ -126,7 +125,7 @@ class AsyncContentProducer implements ContentProducer
     @Override
     public boolean isError()
     {
-        assertLocked();
+        assertUsable();
         if (LOG.isDebugEnabled())
             LOG.debug("isError = {} {}", _error, this);
         return _error;
@@ -135,7 +134,7 @@ class AsyncContentProducer implements ContentProducer
     @Override
     public void checkMinDataRate()
     {
-        assertLocked();
+        assertUsable();
         long minRequestDataRate = _httpChannel.getHttpConfiguration().getMinRequestDataRate();
         if (LOG.isDebugEnabled())
             LOG.debug("checkMinDataRate [m={},t={}] {}", minRequestDataRate, _firstByteTimeStamp, this);
@@ -167,7 +166,7 @@ class AsyncContentProducer implements ContentProducer
     @Override
     public long getRawContentArrived()
     {
-        assertLocked();
+        assertUsable();
         if (LOG.isDebugEnabled())
             LOG.debug("getRawContentArrived = {} {}", _rawContentArrived, this);
         return _rawContentArrived;
@@ -176,7 +175,7 @@ class AsyncContentProducer implements ContentProducer
     @Override
     public boolean consumeAll()
     {
-        assertLocked();
+        assertUsable();
         Throwable x = UNCONSUMED_CONTENT_EXCEPTION;
         if (LOG.isDebugEnabled())
         {
@@ -232,7 +231,7 @@ class AsyncContentProducer implements ContentProducer
     @Override
     public boolean onContentProducible()
     {
-        assertLocked();
+        assertUsable();
         if (LOG.isDebugEnabled())
             LOG.debug("onContentProducible {}", this);
         return _httpChannel.getState().onReadReady();
@@ -241,7 +240,7 @@ class AsyncContentProducer implements ContentProducer
     @Override
     public HttpInput.Content nextContent()
     {
-        assertLocked();
+        assertUsable();
         HttpInput.Content content = nextTransformedContent();
         if (LOG.isDebugEnabled())
             LOG.debug("nextContent = {} {}", content, this);
@@ -253,7 +252,7 @@ class AsyncContentProducer implements ContentProducer
     @Override
     public void reclaim(HttpInput.Content content)
     {
-        assertLocked();
+        assertUsable();
         if (LOG.isDebugEnabled())
             LOG.debug("reclaim {} {}", content, this);
         if (_transformedContent == content)
@@ -268,7 +267,7 @@ class AsyncContentProducer implements ContentProducer
     @Override
     public boolean isReady()
     {
-        assertLocked();
+        assertUsable();
         HttpInput.Content content = nextTransformedContent();
         if (content != null)
         {
@@ -445,17 +444,25 @@ class AsyncContentProducer implements ContentProducer
             throw new IllegalStateException("ContentProducer must be called within lock scope");
     }
 
+    private void assertUsable()
+    {
+        assertLocked();
+        if (_recycled)
+            throw new IllegalStateException("ContentProducer has been recycled");
+    }
+
     @Override
     public String toString()
     {
-        return String.format("%s@%x[r=%s,t=%s,i=%s,error=%b,c=%s]",
+        return String.format("%s@%x[r=%s,t=%s,i=%s,error=%b,c=%s,y=%b]",
             getClass().getSimpleName(),
             hashCode(),
             _rawContent,
             _transformedContent,
             _interceptor,
             _error,
-            _httpChannel
+            _httpChannel,
+            _recycled
         );
     }
 
