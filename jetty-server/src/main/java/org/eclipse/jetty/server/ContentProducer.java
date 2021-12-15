@@ -39,6 +39,10 @@ public interface ContentProducer
     void recycle();
 
     /**
+     */
+    void reopen();
+
+    /**
      * Fail all content currently available in this {@link ContentProducer} instance
      * as well as in the underlying {@link HttpChannel}.
      *

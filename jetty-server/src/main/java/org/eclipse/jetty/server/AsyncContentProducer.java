@@ -69,6 +69,14 @@ class AsyncContentProducer implements ContentProducer
         if (_interceptor instanceof Destroyable)
             ((Destroyable)_interceptor).destroy();
         _interceptor = null;
+    }
+
+    @Override
+    public void reopen()
+    {
+        assertLocked();
+        if (LOG.isDebugEnabled())
+            LOG.debug("reopening {}", this);
         _rawContent = null;
         _transformedContent = null;
         _error = false;
